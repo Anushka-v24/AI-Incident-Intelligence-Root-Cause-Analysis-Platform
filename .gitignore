@@ -1,0 +1,21 @@
+# Ignore datasets
+dataset/
+
+# Ignore processed data
+Processed_data/
+
+# Ignore large data files
+*.csv
+*.zip
+*.gz
+*.tar
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Mac system files
+.DS_Store
