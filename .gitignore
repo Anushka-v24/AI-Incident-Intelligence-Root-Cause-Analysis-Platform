@@ -19,3 +19,9 @@ __pycache__/
 
 # Mac system files
 .DS_Store
+
+*.npy
+*.pt
+*.pth
+__pycache__/
+.ipynb_checkpoints/
