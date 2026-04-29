@@ -1,0 +1,971 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Incident Intelligence</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+            },
+	            colors: {
+	              ink: "#edf7e8",
+	              muted: "#a7b49b",
+	              panel: "#10180f",
+	              panel2: "#182315",
+	              line: "rgba(174, 196, 124, 0.2)",
+	              olivex: "#a6c36f",
+	              mossx: "#6f8f45",
+	            },
+	            boxShadow: {
+	              glow: "0 0 45px rgba(166, 195, 111, 0.18)",
+	            },
+            keyframes: {
+              float: {
+                "0%, 100%": { transform: "translateY(0)" },
+                "50%": { transform: "translateY(-8px)" },
+              },
+              fadeUp: {
+                "0%": { opacity: 0, transform: "translateY(14px)" },
+                "100%": { opacity: 1, transform: "translateY(0)" },
+              },
+	              scan: {
+	                "0%": { transform: "translateX(-100%)" },
+	                "100%": { transform: "translateX(100%)" },
+	              },
+		              drift: {
+		                "0%": { transform: "translate3d(0, 0, 0) rotate(0deg)", opacity: 0.16 },
+		                "50%": { transform: "translate3d(26px, -38px, 0) rotate(8deg)", opacity: 0.42 },
+		                "100%": { transform: "translate3d(0, 0, 0) rotate(0deg)", opacity: 0.16 },
+		              },
+	              flowLight: {
+	                "0%": { transform: "translateX(-38vw) skewX(-18deg)", opacity: 0 },
+	                "18%": { opacity: 0.34 },
+	                "52%": { opacity: 0.2 },
+	                "100%": { transform: "translateX(112vw) skewX(-18deg)", opacity: 0 },
+	              },
+		            },
+		            animation: {
+		              float: "float 6s ease-in-out infinite",
+		              fadeUp: "fadeUp 0.55s ease-out both",
+		              scan: "scan 2.8s linear infinite",
+		              drift: "drift 9s ease-in-out infinite",
+	              flowLight: "flowLight 10s ease-in-out infinite",
+		            },
+          },
+        },
+      };
+    </script>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+
+	      body {
+	        background: #07110c;
+	      }
+
+	      .grid-bg {
+	        background-image:
+	          linear-gradient(rgba(174, 196, 124, 0.08) 1px, transparent 1px),
+	          linear-gradient(90deg, rgba(174, 196, 124, 0.08) 1px, transparent 1px);
+	        background-size: 44px 44px;
+	      }
+
+	      .photo-bg {
+	        background-image:
+	          linear-gradient(180deg, rgba(7, 17, 12, 0.52), rgba(7, 17, 12, 0.92)),
+	          url("/assets/olive-ops-background.png");
+	        background-size: cover;
+	        background-position: center;
+	      }
+
+	      .glass {
+	        background: linear-gradient(180deg, rgba(16, 24, 15, 0.86), rgba(8, 18, 12, 0.91));
+	        border: 1px solid rgba(174, 196, 124, 0.2);
+	        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+	        backdrop-filter: blur(18px);
+	      }
+
+		      .moving-object {
+	        position: absolute;
+	        width: 72px;
+	        height: 42px;
+	        border: 1px solid rgba(190, 214, 135, 0.22);
+	        background: linear-gradient(135deg, rgba(166, 195, 111, 0.1), rgba(111, 143, 69, 0.04));
+		        clip-path: polygon(12% 0, 100% 0, 88% 100%, 0 100%);
+		      }
+
+	      .flow-light {
+	        position: absolute;
+	        top: -15%;
+	        bottom: -15%;
+	        width: 19rem;
+	        background: linear-gradient(90deg, transparent, rgba(204, 232, 142, 0.16), rgba(255, 255, 210, 0.12), transparent);
+	        filter: blur(10px);
+	        pointer-events: none;
+	      }
+
+	      .danger-word {
+	        color: #fecaca;
+	        font-weight: 950;
+	        letter-spacing: 0.08em;
+	        text-transform: uppercase;
+	        text-shadow:
+	          0 0 16px rgba(185, 28, 28, 0.82),
+	          0 0 34px rgba(127, 29, 29, 0.75);
+	      }
+
+      .thin-scroll::-webkit-scrollbar {
+        height: 8px;
+        width: 8px;
+      }
+
+      .thin-scroll::-webkit-scrollbar-thumb {
+        background: rgba(148, 163, 184, 0.32);
+        border-radius: 999px;
+      }
+    </style>
+  </head>
+  <body class="font-sans text-ink antialiased">
+    <div id="root"></div>
+
+    <script type="text/babel">
+	      const { useEffect, useMemo, useRef, useState } = React;
+
+      const models = [
+        ["random_forest", "RandomForest"],
+        ["ensemble", "Ensemble"],
+        ["transformer", "Transformer"],
+        ["lstm", "LSTM"],
+        ["autoencoder", "Autoencoder"],
+        ["svm", "SVM"],
+        ["lightgbm", "LightGBM"],
+        ["xgboost", "XGBoost"],
+        ["isolation_forest", "Isolation Forest"],
+      ];
+
+      const api = async (path, options = {}) => {
+        const response = await fetch(path, {
+          headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+          ...options,
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || "Request failed.");
+        return data;
+      };
+
+	      function Shell({ children }) {
+	        return (
+	          <div className="photo-bg relative min-h-screen overflow-hidden bg-[#07110c] text-ink">
+	            <div className="absolute inset-0 grid-bg opacity-45" />
+	            <div className="moving-object left-[8%] top-[18%] animate-drift" />
+		            <div className="moving-object right-[12%] top-[34%] animate-drift" style={{ animationDelay: "1.7s" }} />
+		            <div className="moving-object bottom-[18%] left-[42%] animate-drift" style={{ animationDelay: "3.1s" }} />
+		            <div className="moving-object bottom-[8%] right-[24%] animate-drift" style={{ animationDelay: "4.4s" }} />
+	            <div className="flow-light animate-flowLight" />
+	            <div className="flow-light animate-flowLight" style={{ animationDelay: "4.8s", width: "13rem" }} />
+	            <main className="relative z-10">{children}</main>
+	          </div>
+	        );
+	      }
+
+      function Button({ children, variant = "primary", className = "", ...props }) {
+        const styles =
+	          variant === "ghost"
+	            ? "border-line bg-white/5 text-slate-200 hover:bg-white/10"
+	            : variant === "danger"
+	            ? "border-red-400/30 bg-red-500/12 text-red-100 hover:bg-red-500/20"
+	            : "border-lime-200/30 bg-[#a6c36f] text-[#07110c] hover:bg-[#bddb82]";
+        return (
+          <button
+            className={`rounded-lg border px-4 py-2 text-sm font-semibold transition duration-200 disabled:cursor-not-allowed disabled:opacity-50 ${styles} ${className}`}
+            {...props}
+          >
+            {children}
+          </button>
+        );
+      }
+
+      function Field({ label, ...props }) {
+        return (
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium text-slate-300">{label}</span>
+            <input
+              className="w-full rounded-lg border border-line bg-slate-950/60 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-lime-200/60 focus:ring-4 focus:ring-lime-300/10"
+              {...props}
+            />
+          </label>
+        );
+      }
+
+      function Select({ label, children, ...props }) {
+        return (
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium text-slate-300">{label}</span>
+            <select
+              className="w-full rounded-lg border border-line bg-slate-950/60 px-3 py-2.5 text-sm text-white outline-none transition focus:border-lime-200/60 focus:ring-4 focus:ring-lime-300/10"
+              {...props}
+            >
+              {children}
+            </select>
+          </label>
+        );
+      }
+
+      function Auth({ onAuth }) {
+        const [mode, setMode] = useState("login");
+        const [username, setUsername] = useState("");
+        const [password, setPassword] = useState("");
+        const [confirm, setConfirm] = useState("");
+        const [error, setError] = useState("");
+        const [loading, setLoading] = useState(false);
+
+        const submit = async (event) => {
+          event.preventDefault();
+          setError("");
+          if (mode === "signup" && password !== confirm) {
+            setError("Passwords do not match.");
+            return;
+          }
+          setLoading(true);
+          try {
+            const data = await api(`/api/auth/${mode}`, {
+              method: "POST",
+              body: JSON.stringify({ username, password }),
+            });
+            localStorage.setItem("incidentUser", data.user);
+            onAuth(data.user);
+          } catch (err) {
+            setError(err.message);
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        return (
+          <Shell>
+            <div className="mx-auto grid min-h-screen max-w-7xl items-center gap-10 px-5 py-10 lg:grid-cols-[1.1fr_0.9fr]">
+              <section className="animate-fadeUp">
+                <div className="mb-5 inline-flex rounded-full border border-lime-200/20 bg-[#a6c36f]/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.22em] text-lime-200">
+                  Ethical Incident Operations
+                </div>
+                <h1 className="max-w-4xl text-5xl font-extrabold leading-tight tracking-[-0.02em] text-white md:text-7xl">
+                  Responsible anomaly detection for critical log streams.
+                </h1>
+                <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
+                  Analyze HDFS event sequences, compare detector confidence, preserve user-scoped history, and support evidence-based remediation without overstating model certainty.
+                </p>
+                <div className="mt-8 grid max-w-2xl gap-3 sm:grid-cols-3">
+                  {["Evidence first", "Human review", "Traceable reports"].map((item) => (
+                    <div key={item} className="rounded-lg border border-line bg-white/[0.04] px-4 py-3 text-sm font-semibold text-slate-200">
+                      {item}
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <form onSubmit={submit} className="glass animate-fadeUp rounded-xl p-6" style={{ animationDelay: "120ms" }}>
+                <div className="mb-6 flex rounded-lg border border-line bg-slate-950/50 p-1">
+                  {["login", "signup"].map((tab) => (
+                    <button
+                      type="button"
+                      key={tab}
+                      onClick={() => setMode(tab)}
+                      className={`flex-1 rounded-md px-4 py-2 text-sm font-bold capitalize transition ${
+                        mode === tab ? "bg-[#a6c36f] text-[#07110c]" : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      {tab === "signup" ? "Sign up" : "Login"}
+                    </button>
+                  ))}
+                </div>
+                <div className="space-y-4">
+                  <Field label="Username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
+                  <Field label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={mode === "signup" ? "new-password" : "current-password"} />
+                  {mode === "signup" && (
+                    <Field label="Confirm password" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
+                  )}
+                </div>
+                {error && <div className="mt-4 rounded-lg border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error}</div>}
+                <Button className="mt-6 w-full py-3" disabled={loading}>
+                  {loading ? "Processing..." : mode === "signup" ? "Create secure account" : "Enter console"}
+                </Button>
+                <p className="mt-4 text-xs leading-5 text-slate-500">
+                  Passwords are stored locally as salted hashes for project demonstration. Use institutional identity controls before production deployment.
+                </p>
+              </form>
+            </div>
+          </Shell>
+        );
+      }
+
+	      function StatCard({ label, value, detail, tone = "neutral", compact = false }) {
+	        const toneStyles =
+	          tone === "danger"
+	            ? "border-red-950/90 bg-gradient-to-br from-red-950 via-red-950/80 to-black shadow-[0_0_46px_rgba(127,29,29,0.42)]"
+	            : tone === "success"
+	            ? "border-emerald-300/60 bg-gradient-to-br from-emerald-950/80 via-emerald-900/35 to-black shadow-[0_0_34px_rgba(16,185,129,0.24)]"
+	            : "";
+	        const valueStyles =
+	          tone === "danger" ? "danger-word" : tone === "success" ? "text-emerald-200 font-black tracking-wide uppercase" : "text-white";
+	        return (
+	          <div className={`glass rounded-xl ${compact ? "p-4" : "p-5"} transition duration-300 hover:-translate-y-1 hover:shadow-glow ${toneStyles}`}>
+	            <div className={`${compact ? "text-xs" : "text-sm"} font-medium text-slate-400`}>{label}</div>
+	            <div className={`mt-2 ${compact ? "text-2xl" : "text-3xl"} font-extrabold ${valueStyles}`}>{value}</div>
+	            {detail && <div className="mt-2 text-[0.7rem] font-bold text-lime-200">{detail}</div>}
+	          </div>
+	        );
+	      }
+
+	      function MiniStat({ label, value }) {
+        return (
+          <div className="rounded-lg border border-line bg-black/20 px-3 py-2">
+            <div className="text-[0.68rem] font-bold uppercase tracking-wide text-slate-500">{label}</div>
+            <div className="mt-1 text-lg font-extrabold text-lime-100">{value}</div>
+          </div>
+        );
+	      }
+
+	      function SummaryRail({ summary }) {
+	        return (
+	          <aside className="fixed right-3 top-32 z-40 hidden w-36 space-y-2 xl:block">
+	            <MiniStat label="Analyses" value={summary.total || 0} />
+	            <MiniStat label="Anomalies" value={summary.anomalies || 0} />
+	            <MiniStat label="Normal" value={summary.normal || 0} />
+	          </aside>
+	        );
+	      }
+
+      function WebsiteGuide() {
+        const steps = [
+          ["Start", "Sign in or create a local account."],
+          ["Select", "Choose dataset, manual events, or log upload."],
+          ["Detect", "Pick a model and run detection."],
+          ["Review", "Read the live assessment and trigger evidence."],
+          ["Export", "Open report tools and download TXT or PDF."],
+          ["End", "Document action and log out."],
+        ];
+        return (
+          <Panel title="How To Use This Console">
+            <p className="text-sm leading-6 text-slate-300">
+              This website helps operators inspect HDFS event sequences with trained anomaly detectors.
+              It accepts dataset samples, manual event IDs, and TXT or LOG evidence files.
+              The console summarizes model confidence, likely trigger events, and supporting charts.
+              A live investigation assessment is typed on screen to explain the problem and possible improvements.
+              Detailed tables stay hidden behind small evidence tools so the main workflow remains focused.
+              Reports can be reviewed and exported after the analysis is complete.
+            </p>
+            <div className="mt-5 grid gap-3 md:grid-cols-6">
+              {steps.map(([title, body], index) => (
+                <div key={title} className="relative rounded-xl border border-line bg-black/20 p-3">
+                  {index < steps.length - 1 && (
+                    <div className="absolute right-[-0.85rem] top-1/2 z-10 hidden h-px w-4 bg-[#a6c36f]/70 md:block" />
+                  )}
+                  <div className="mb-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#a6c36f] text-xs font-black text-[#07110c]">
+                    {index + 1}
+                  </div>
+                  <div className="text-sm font-extrabold text-white">{title}</div>
+                  <div className="mt-1 text-xs leading-5 text-slate-400">{body}</div>
+                </div>
+              ))}
+            </div>
+          </Panel>
+        );
+      }
+
+      function BarChart({ data, valueKey = "value", labelKey = "label", accent = "cyan" }) {
+        const max = Math.max(1, ...data.map((item) => Number(item[valueKey]) || 0));
+        const color = accent === "teal" ? "from-[#7fa356] to-[#bddb82]" : accent === "red" ? "from-red-300 to-orange-200" : "from-[#a6c36f] to-[#d4e89a]";
+        return (
+          <div className="space-y-3">
+            {data.length === 0 && <div className="text-sm text-slate-500">No data available yet.</div>}
+            {data.map((item) => (
+              <div key={item[labelKey]} className="grid grid-cols-[7.5rem_1fr_3rem] items-center gap-3 text-sm">
+                <div className="truncate text-slate-300">{item[labelKey]}</div>
+                <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+                  <div
+                    className={`h-full rounded-full bg-gradient-to-r ${color} transition-all duration-700`}
+                    style={{ width: `${Math.max(4, (Number(item[valueKey]) / max) * 100)}%` }}
+                  />
+                </div>
+                <div className="text-right font-semibold text-slate-200">{item[valueKey]}</div>
+              </div>
+            ))}
+          </div>
+        );
+      }
+
+      function Panel({ title, children, action }) {
+        return (
+          <section className="glass rounded-xl p-5">
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <h2 className="text-lg font-bold text-white">{title}</h2>
+              {action}
+            </div>
+            {children}
+          </section>
+        );
+      }
+
+      function Table({ columns, rows, maxHeight = "max-h-80" }) {
+        return (
+          <div className={`thin-scroll overflow-auto rounded-lg border border-line ${maxHeight}`}>
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <thead className="sticky top-0 bg-slate-950 text-xs uppercase tracking-wide text-slate-400">
+                <tr>{columns.map((col) => <th key={col.key} className="px-4 py-3 font-bold">{col.label}</th>)}</tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {rows.length === 0 && (
+                  <tr>
+                    <td className="px-4 py-6 text-slate-500" colSpan={columns.length}>No records available.</td>
+                  </tr>
+                )}
+                {rows.map((row, index) => (
+                  <tr key={index} className="bg-white/[0.02] transition hover:bg-white/[0.05]">
+                    {columns.map((col) => <td key={col.key} className="px-4 py-3 text-slate-300">{row[col.key] ?? ""}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      }
+
+      function Disclosure({ title, description, children }) {
+        return (
+          <details className="glass group rounded-xl p-5">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-4">
+              <span>
+                <span className="block text-lg font-bold text-white">{title}</span>
+                {description && <span className="mt-1 block text-sm leading-6 text-slate-400">{description}</span>}
+              </span>
+              <span className="rounded-lg border border-line bg-white/5 px-3 py-1 text-xs font-bold text-lime-200 transition group-open:bg-[#a6c36f] group-open:text-[#07110c]">
+                Open
+              </span>
+            </summary>
+            <div className="mt-5">{children}</div>
+          </details>
+        );
+      }
+
+      function TableIcon() {
+        return (
+          <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5">
+            <rect x="4" y="5" width="16" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+            <path d="M4 10h16M9 5v14M15 5v14" fill="none" stroke="currentColor" strokeWidth="1.8" />
+          </svg>
+        );
+      }
+
+      function EvidenceButton({ active, label, onClick }) {
+        return (
+          <button
+            onClick={onClick}
+            className={`flex h-14 w-14 items-center justify-center rounded-xl border transition duration-200 hover:-translate-y-0.5 ${
+              active
+                ? "border-lime-200/50 bg-[#a6c36f] text-[#07110c] shadow-glow"
+                : "border-line bg-white/5 text-lime-100 hover:bg-white/10"
+            }`}
+            title={label}
+          >
+            <TableIcon />
+          </button>
+        );
+      }
+
+      function Dashboard({ user, onLogout }) {
+        const [page, setPage] = useState("dashboard");
+        const [history, setHistory] = useState({ summary: {}, rows: [] });
+        const [manualRows, setManualRows] = useState([]);
+        const [result, setResult] = useState(null);
+        const [source, setSource] = useState("Dataset sample");
+        const [samplePool, setSamplePool] = useState("Mixed");
+        const [sampleIndex, setSampleIndex] = useState(0);
+        const [manualText, setManualText] = useState("E5, E22, E11, E9, E3, E20");
+        const [uploadedFileName, setUploadedFileName] = useState("");
+        const [modelName, setModelName] = useState("random_forest");
+        const [message, setMessage] = useState("");
+        const [loading, setLoading] = useState(false);
+	        const [liveExplanation, setLiveExplanation] = useState("");
+	        const [explanationLoading, setExplanationLoading] = useState(false);
+	        const [evidenceView, setEvidenceView] = useState("");
+        const explanationRef = useRef(null);
+        const typeText = (text, delay = 14) =>
+          new Promise((resolve) => {
+            let index = 0;
+            const writeNext = () => {
+              if (index >= text.length) {
+                resolve();
+                return;
+              }
+              const nextCharacter = text[index];
+              setLiveExplanation((current) => current + nextCharacter);
+              index += 1;
+              window.setTimeout(writeNext, delay);
+            };
+            writeNext();
+          });
+
+        const refreshHistory = async () => {
+          const data = await api(`/api/history/${user}`);
+          setHistory(data);
+        };
+
+	        useEffect(() => {
+	          refreshHistory().catch((err) => setMessage(err.message));
+	          api("/api/manual").then((data) => setManualRows(data.rows)).catch(() => {});
+	        }, []);
+
+        useEffect(() => {
+          if (!explanationLoading || !explanationRef.current) return;
+          explanationRef.current.scrollTop = explanationRef.current.scrollHeight;
+          explanationRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+        }, [liveExplanation, explanationLoading]);
+
+        const streamExplanation = async (analysis) => {
+          setLiveExplanation("");
+          setExplanationLoading(true);
+          try {
+            const response = await fetch("/api/explain/stream", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ user, source, samplePool, sampleIndex, ...analysis }),
+            });
+            if (!response.ok || !response.body) {
+              const data = await response.json().catch(() => ({}));
+              throw new Error(data.message || "Live explanation could not be generated.");
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+	            while (true) {
+	              const { value, done } = await reader.read();
+	              if (done) break;
+	              const chunk = decoder.decode(value, { stream: true });
+	              await typeText(chunk);
+	            }
+            await typeText("\n\n", 10);
+	          } catch (err) {
+	            await typeText(`Live explanation unavailable: ${err.message}\n\n`, 12);
+	          } finally {
+            setExplanationLoading(false);
+          }
+        };
+
+        const analyze = async () => {
+          setLoading(true);
+          setMessage("");
+          setLiveExplanation("");
+          try {
+            const data = await api("/api/analyze", {
+              method: "POST",
+              body: JSON.stringify({ user, source, samplePool, sampleIndex, manualText, modelName }),
+            });
+            setResult(data);
+            setEvidenceView("");
+            await refreshHistory();
+            streamExplanation(data);
+          } catch (err) {
+            setMessage(err.message);
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        const handleLogUpload = async (event) => {
+          const file = event.target.files?.[0];
+          if (!file) return;
+          const suffix = file.name.toLowerCase().split(".").pop();
+          if (!["txt", "log"].includes(suffix)) {
+            setMessage("Upload only .txt or .log files for log evidence.");
+            event.target.value = "";
+            return;
+          }
+          setUploadedFileName(file.name);
+          setManualText(await file.text());
+          setSource("Uploaded log");
+        };
+
+        const displayName = user ? user.charAt(0).toUpperCase() + user.slice(1) : "";
+
+        const downloadTextReport = () => {
+          if (!result?.report) return;
+          const blob = new Blob([result.report], { type: "text/plain" });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `incident_report_${result.sample.blockId || "analysis"}.txt`;
+          link.click();
+          URL.revokeObjectURL(url);
+        };
+
+        const downloadPdfReport = () => {
+          if (!result?.report) return;
+          const lines = result.report.split("\n").flatMap((line) => {
+            const chunks = [];
+            for (let index = 0; index < line.length; index += 88) chunks.push(line.slice(index, index + 88));
+            return chunks.length ? chunks : [""];
+          });
+          const escapePdf = (text) => text.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+          const content = ["BT", "/F1 10 Tf", "50 790 Td", "14 TL"];
+          lines.slice(0, 52).forEach((line) => {
+            content.push(`(${escapePdf(line)}) Tj`);
+            content.push("T*");
+          });
+          content.push("ET");
+          const stream = content.join("\n");
+          const objects = [
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+          ];
+          let pdf = "%PDF-1.4\n";
+          const offsets = [];
+          objects.forEach((object, index) => {
+            offsets.push(pdf.length);
+            pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+          });
+          const xref = pdf.length;
+          pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+          offsets.forEach((offset) => {
+            pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+          });
+          pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+          const blob = new Blob([pdf], { type: "application/pdf" });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `incident_report_${result.sample.blockId || "analysis"}.pdf`;
+          link.click();
+          URL.revokeObjectURL(url);
+        };
+
+        const clearCache = async () => {
+          const data = await api("/api/cache/clear", { method: "POST", body: JSON.stringify({ user }) });
+          setMessage(data.message);
+        };
+
+        const summary = history.summary || {};
+        const contributionData = (result?.contributors || []).map((row) => ({
+          label: row["Event ID"],
+          value: Number(row["Contribution Score"] || 0).toFixed(3),
+        }));
+        const modelProbabilities = (result?.comparison || []).map((row) => ({
+          label: row.Model,
+          value: Number(String(row["Anomaly Probability"]).replace("%", "")).toFixed(1),
+        }));
+        const eventCounts = (result?.mappedEvents || []).map((row) => ({
+          label: row["Event ID"],
+          value: row.Count,
+        }));
+
+        return (
+	          <Shell>
+            {page === "dashboard" && <SummaryRail summary={summary} />}
+	            <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8 xl:pr-44">
+              <header className="glass sticky top-4 z-30 mb-6 rounded-xl px-4 py-3">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-[0.22em] text-lime-200">AI Incident Intelligence</div>
+                    <h1 className="mt-1 text-2xl font-extrabold text-white">Ethical error detection console</h1>
+                  </div>
+                  <nav className="flex flex-wrap gap-2">
+                    {[
+                      ["dashboard", "Detection"],
+                      ["manual", "Mapping Manual"],
+                      ["history", "History"],
+                    ].map(([key, label]) => (
+                      <button
+                        key={key}
+                        onClick={() => setPage(key)}
+                        className={`rounded-lg px-4 py-2 text-sm font-bold transition ${
+                          page === key ? "bg-[#a6c36f] text-[#07110c]" : "border border-line bg-white/5 text-slate-300 hover:bg-white/10"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                    <Button variant="ghost" onClick={clearCache}>Clear cache</Button>
+                    <span className="rounded-lg border border-line bg-white/5 px-4 py-2 text-sm font-bold text-lime-100">Hello {displayName}</span>
+                    <Button variant="danger" onClick={onLogout}>Logout</Button>
+                  </nav>
+                </div>
+              </header>
+
+              {message && <div className="mb-5 rounded-lg border border-lime-200/25 bg-[#a6c36f]/10 px-4 py-3 text-sm text-lime-100">{message}</div>}
+
+              {page === "manual" && (
+                <Panel title="Event Mapping Manual">
+                  <p className="mb-4 max-w-3xl text-sm leading-6 text-slate-400">
+                    Use this reference to interpret event identifiers before submitting manual sequences. Event labels describe known HDFS log templates and should be treated as evidence for review, not as automatic proof of fault.
+                  </p>
+                  <Table
+                    columns={[
+                      { key: "number", label: "Number" },
+                      { key: "eventId", label: "Event ID" },
+                      { key: "template", label: "Mapped HDFS event" },
+                    ]}
+                    rows={manualRows}
+                    maxHeight="max-h-[70vh]"
+                  />
+                </Panel>
+              )}
+
+              {page === "history" && (
+                <div className="space-y-6">
+                  <div className="grid gap-4 md:grid-cols-4">
+                    <StatCard label="Analyses" value={summary.total || 0} />
+                    <StatCard label="Anomalies" value={summary.anomalies || 0} />
+	                    <StatCard label="Normal outcomes" value={summary.normal || 0} />
+                  </div>
+                  <div className="grid gap-6 lg:grid-cols-3">
+                    <Panel title="Prediction Mix"><BarChart data={summary.predictionMix || []} /></Panel>
+                    <Panel title="Severity Mix"><BarChart data={summary.severityMix || []} accent="teal" /></Panel>
+                    <Panel title="Frequent Triggers"><BarChart data={summary.triggerMix || []} accent="red" /></Panel>
+                  </div>
+                  <Panel title="User-Scoped Incident History">
+                    <Table
+                      columns={[
+                        { key: "Time", label: "Time" },
+                        { key: "Block ID", label: "Block ID" },
+                        { key: "Prediction", label: "Prediction" },
+                        { key: "Probability", label: "Probability" },
+                        { key: "Severity", label: "Severity" },
+                        { key: "Trigger Event", label: "Trigger" },
+                        { key: "Model", label: "Model" },
+                      ]}
+                      rows={history.rows || []}
+                    />
+                  </Panel>
+                </div>
+              )}
+
+              {page === "dashboard" && (
+                <div className="grid gap-6 xl:grid-cols-[22rem_1fr]">
+                  <aside className="glass h-fit rounded-xl p-5">
+                    <h2 className="text-lg font-bold text-white">Analysis Setup</h2>
+                    <p className="mt-2 text-sm leading-6 text-slate-400">
+                      Select an evidence source and detector. Results should support investigation and require operational validation before remediation.
+                    </p>
+                    <div className="mt-5 space-y-4">
+                      <Select label="Input source" value={source} onChange={(e) => setSource(e.target.value)}>
+                        <option>Dataset sample</option>
+                        <option>Manual events</option>
+                        <option>Uploaded log</option>
+                      </Select>
+                      {source === "Dataset sample" ? (
+                        <>
+                          <Select label="Sample pool" value={samplePool} onChange={(e) => setSamplePool(e.target.value)}>
+                            <option>Mixed</option>
+                            <option>Anomaly</option>
+                            <option>Normal</option>
+                          </Select>
+                          <Field label="Sample index" type="number" min="0" value={sampleIndex} onChange={(e) => setSampleIndex(e.target.value)} />
+                        </>
+                      ) : (
+                        <>
+                          {source === "Uploaded log" && (
+                            <label className="block">
+                              <span className="mb-2 block text-sm font-medium text-slate-300">Upload log evidence</span>
+                              <input
+                                type="file"
+                                accept=".txt,.log,text/plain"
+                                onChange={handleLogUpload}
+                                className="w-full rounded-lg border border-line bg-slate-950/60 px-3 py-2.5 text-sm text-slate-300 file:mr-3 file:rounded-md file:border-0 file:bg-[#a6c36f] file:px-3 file:py-1.5 file:text-sm file:font-bold file:text-[#07110c]"
+                              />
+                              {uploadedFileName && <span className="mt-2 block text-xs text-lime-100">{uploadedFileName}</span>}
+                            </label>
+                          )}
+                          <label className="block">
+                            <span className="mb-2 block text-sm font-medium text-slate-300">{source === "Uploaded log" ? "Detected event IDs from file" : "Event IDs"}</span>
+                            <textarea
+                              className="h-32 w-full rounded-lg border border-line bg-slate-950/60 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-lime-200/60 focus:ring-4 focus:ring-lime-300/10"
+                              value={manualText}
+                              onChange={(e) => setManualText(e.target.value)}
+                            />
+                          </label>
+                        </>
+                      )}
+                      <Select label="Detector" value={modelName} onChange={(e) => setModelName(e.target.value)}>
+                        {models.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </Select>
+                      <Button className="w-full py-3" onClick={analyze} disabled={loading}>
+                        {loading ? "Analyzing evidence..." : "Run detection"}
+                      </Button>
+                    </div>
+                  </aside>
+
+	                  <section className="space-y-6">
+	                    {!result && (
+		                      <div className="grid gap-6">
+                            <WebsiteGuide />
+		                        <div className="glass relative overflow-hidden rounded-xl p-8">
+	                          <div className="absolute inset-x-0 top-0 h-px overflow-hidden bg-[#a6c36f]/20">
+	                            <div className="h-full w-1/2 animate-scan bg-[#a6c36f]/70" />
+	                          </div>
+	                          <div className="max-w-3xl">
+	                            <h2 className="text-2xl font-extrabold text-white">Ready for incident analysis</h2>
+	                            <p className="mt-3 leading-7 text-slate-400">
+	                              Run a detector to generate model confidence, likely trigger evidence, event frequency charts, comparison views, and a traceable report.
+	                            </p>
+	                          </div>
+	                        </div>
+		                      </div>
+	                    )}
+
+	                    {result && (
+	                      <>
+		                        <div className="grid gap-3 md:grid-cols-3">
+		                          <StatCard
+		                            label="Prediction"
+		                            value={result.prediction.label}
+		                            detail={result.prediction.model}
+		                            tone={result.prediction.label === "Anomaly" ? "danger" : "success"}
+                                compact
+		                          />
+		                          <StatCard compact label="Anomaly probability" value={`${(result.prediction.anomaly_probability * 100).toFixed(2)}%`} />
+		                          <StatCard compact label="Severity" value={result.severity.level} detail={`Risk ${result.severity.risk_score}/100`} />
+		                        </div>
+
+	                        <div className="grid gap-6 lg:grid-cols-2">
+	                          <Panel title="Input Evidence">
+	                            <div className="grid gap-3 text-sm text-slate-300 sm:grid-cols-2">
+	                              <div>Source: <span className="font-semibold text-white">{result.sample.source}</span></div>
+		                              <div className="min-w-0">Block ID: <span className="break-all font-semibold text-white">{result.sample.blockId}</span></div>
+	                              <div>Dataset label: <span className="font-semibold text-white">{result.sample.label}</span></div>
+	                              <div>Sequence length: <span className="font-semibold text-white">{result.sample.sequenceLength}</span></div>
+	                            </div>
+	                            <div className="mt-4 rounded-lg border border-line bg-slate-950/50 p-3 text-xs leading-6 text-slate-400">
+	                              {result.sample.preview.join(", ")}
+	                            </div>
+	                          </Panel>
+	                          <Panel title="Trigger Assessment">
+	                            <p className="text-sm leading-6 text-slate-300">{result.trigger.reason}</p>
+	                            <div className="mt-4 rounded-lg border border-line bg-slate-950/50 p-3 text-sm text-slate-400">{result.trigger.template}</div>
+	                          </Panel>
+	                        </div>
+
+	                        <Panel
+	                          title={source === "Dataset sample" ? "Live Ollama Assessment" : "Live Investigation Assessment"}
+                          action={
+                            explanationLoading && (
+                              <span className="rounded-full border border-lime-200/25 bg-[#a6c36f]/10 px-3 py-1 text-xs font-bold text-lime-100">
+                                Generating live
+                              </span>
+                            )
+                          }
+                        >
+                          <div className="relative overflow-hidden rounded-lg border border-line bg-slate-950/60 p-4">
+                            {explanationLoading && (
+                              <div className="absolute inset-x-0 top-0 h-px overflow-hidden bg-[#a6c36f]/20">
+                                <div className="h-full w-1/2 animate-scan bg-[#a6c36f]/70" />
+                              </div>
+                            )}
+	                            <pre ref={explanationRef} className="thin-scroll min-h-44 max-h-96 overflow-auto whitespace-pre-wrap text-sm leading-7 text-slate-300">
+                              {liveExplanation || "Waiting for the model to produce an operator-facing explanation after detection."}
+                              {explanationLoading && <span className="ml-1 inline-block h-4 w-2 animate-pulse bg-[#a6c36f] align-middle" />}
+                            </pre>
+                          </div>
+                          <p className="mt-3 text-xs leading-5 text-slate-500">
+                            This narrative is decision support. Validate evidence, impact, and remediation steps with an accountable operator.
+                          </p>
+                        </Panel>
+
+	                        <div className="grid gap-6 lg:grid-cols-2">
+	                          <Panel title="Event Frequency"><BarChart data={eventCounts} /></Panel>
+	                          <Panel title="Contributing Events"><BarChart data={contributionData} accent="red" /></Panel>
+	                        </div>
+
+	                        <Panel title="Evidence Table Tools">
+	                          <div className="flex flex-wrap items-center gap-3">
+		                            <EvidenceButton active={evidenceView === "comparison"} label="Model comparison table" onClick={() => setEvidenceView(evidenceView === "comparison" ? "" : "comparison")} />
+		                            <EvidenceButton active={evidenceView === "probability"} label="Model probability chart" onClick={() => setEvidenceView(evidenceView === "probability" ? "" : "probability")} />
+		                            <EvidenceButton active={evidenceView === "contributors"} label="Contributing events table" onClick={() => setEvidenceView(evidenceView === "contributors" ? "" : "contributors")} />
+		                            <EvidenceButton active={evidenceView === "report"} label="Report preview" onClick={() => setEvidenceView(evidenceView === "report" ? "" : "report")} />
+	                            <div className="text-sm leading-6 text-slate-400">
+	                              Use the table icons only when you need detailed evidence. The main screen stays focused on assessment, charts, and recommendations.
+	                            </div>
+	                          </div>
+
+	                          {evidenceView === "comparison" && (
+	                            <div className="mt-5">
+	                              <Table
+	                                columns={[
+	                                  { key: "Model", label: "Model" },
+	                                  { key: "Status", label: "Status" },
+	                                  { key: "Prediction", label: "Prediction" },
+	                                  { key: "Anomaly Probability", label: "Anomaly probability" },
+	                                ]}
+	                                rows={result.comparison}
+	                              />
+	                            </div>
+	                          )}
+
+		                          {evidenceView === "contributors" && (
+	                            <div className="mt-5">
+	                              <Table
+	                                columns={[
+	                                  { key: "Event ID", label: "Event ID" },
+	                                  { key: "Count", label: "Count" },
+	                                  { key: "Contribution Score", label: "Contribution" },
+	                                  { key: "Template", label: "Template" },
+	                                ]}
+	                                rows={result.contributors}
+	                              />
+	                            </div>
+		                          )}
+
+		                          {evidenceView === "probability" && (
+		                            <div className="mt-5">
+		                              <BarChart data={modelProbabilities} accent="teal" />
+		                            </div>
+		                          )}
+
+		                          {evidenceView === "report" && (
+                                <div className="mt-5">
+                                  <div className="mb-4 flex flex-wrap gap-3">
+                                    <Button variant="ghost" onClick={downloadTextReport}>Download TXT</Button>
+                                    <Button variant="ghost" onClick={downloadPdfReport}>Download PDF</Button>
+                                  </div>
+                                  <pre className="thin-scroll max-h-96 overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-slate-950/60 p-4 text-sm leading-7 text-slate-300">
+                                    {result.report}
+                                  </pre>
+                                </div>
+		                          )}
+	                        </Panel>
+                      </>
+                    )}
+                  </section>
+                </div>
+              )}
+            </div>
+          </Shell>
+        );
+      }
+
+      function App() {
+        const [user, setUser] = useState(localStorage.getItem("incidentUser") || "");
+        if (!user) return <Auth onAuth={setUser} />;
+        return (
+          <Dashboard
+            user={user}
+            onLogout={() => {
+              localStorage.removeItem("incidentUser");
+              setUser("");
+            }}
+          />
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+  </body>
+</html>
