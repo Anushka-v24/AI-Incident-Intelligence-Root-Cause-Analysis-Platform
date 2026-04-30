@@ -1,0 +1,13 @@
+.crewai_storage
+.git
+__pycache__
+*.pyc
+.DS_Store
+Models
+Preprocessing and EDA
+AI-Incident-Intelligence-Root-Cause-Analysis-Platform
+dataset/HDFS_2k
+dataset/HDFS_v2
+dataset/HDFS_v3_TraceBench
+*.ipynb
+

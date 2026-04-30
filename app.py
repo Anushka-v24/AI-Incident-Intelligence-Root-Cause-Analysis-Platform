@@ -1,16 +1,7 @@
 import os
-import hashlib
-import json
-import re
-import secrets
-import textwrap
-import urllib.request
-from datetime import datetime
-from io import BytesIO
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
-USERS_PATH = PROJECT_ROOT / "artifacts" / "users.json"
 os.environ.setdefault("CREWAI_STORAGE_DIR", str(PROJECT_ROOT / ".crewai_storage"))
 os.environ.setdefault("CREWAI_DISABLE_TELEMETRY", "true")
 
@@ -20,304 +11,32 @@ import pandas as pd
 from agents.crew_setup import DebugCrew
 from inference.detector import HDFSAnomalyDetector, MODEL_OPTIONS
 from inference.event_mapper import EventMapper
-from inference.hdfs_data import TEMPLATES_PATH, get_hdfs_sample, parse_event_sequence
+from inference.hdfs_data import TEMPLATES_PATH, get_hdfs_sample
 from inference.incident_store import (
     build_incident_report,
     load_incident_history,
     save_incident_history,
 )
 from llm.llm_explainer import OllamaLLM
+from streamlit_app.auth_view import render_auth_screen
+from streamlit_app.styles import APP_CSS
+from streamlit_app.utils import (
+    clear_app_cache,
+    compress_event_runs,
+    event_manual_rows,
+    event_positions,
+    ollama_model_available,
+    parse_event_ids,
+    parse_uploaded_events,
+    pdf_bytes_from_text,
+    probability_value,
+    rule_based_explanation,
+    sample_from_events,
+    timeline_rows,
+)
 
 
 MODEL_LABELS = {name: config["label"] for name, config in MODEL_OPTIONS.items()}
-
-
-def load_users():
-    if not USERS_PATH.exists():
-        return {}
-    try:
-        return json.loads(USERS_PATH.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {}
-
-
-def save_users(users):
-    USERS_PATH.parent.mkdir(exist_ok=True)
-    USERS_PATH.write_text(json.dumps(users, indent=2), encoding="utf-8")
-
-
-def password_hash(password, salt):
-    return hashlib.sha256(f"{salt}:{password}".encode("utf-8")).hexdigest()
-
-
-def create_user(username, password):
-    username = username.strip().lower()
-    if not username:
-        return False, "Enter a username."
-    if len(password) < 6:
-        return False, "Use at least 6 characters for the password."
-
-    users = load_users()
-    if username in users:
-        return False, "That username already exists."
-
-    salt = secrets.token_hex(16)
-    users[username] = {
-        "salt": salt,
-        "password_hash": password_hash(password, salt),
-        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    }
-    save_users(users)
-    return True, "Account created. You are signed in."
-
-
-def verify_user(username, password):
-    username = username.strip().lower()
-    users = load_users()
-    user = users.get(username)
-    if not user:
-        return False
-    return secrets.compare_digest(
-        user["password_hash"],
-        password_hash(password, user["salt"]),
-    )
-
-
-def render_auth_screen():
-    left, right = st.columns([1.05, 0.95], vertical_alignment="center")
-    with left:
-        st.markdown(
-            """
-            <div class="auth-hero">
-                <div class="eyebrow">Incident Operations Console</div>
-                <h1>Detect failures before they become outages.</h1>
-                <p>Analyze HDFS event streams, compare trained detectors, isolate likely triggers,
-                and keep each operator's investigation history separate.</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with right:
-        st.markdown('<div class="auth-panel">', unsafe_allow_html=True)
-        auth_tab, signup_tab = st.tabs(["Login", "Sign up"])
-        with auth_tab:
-            with st.form("login_form"):
-                username = st.text_input("Username", key="login_username")
-                password = st.text_input("Password", type="password", key="login_password")
-                submitted = st.form_submit_button("Login", type="primary", use_container_width=True)
-            if submitted:
-                if verify_user(username, password):
-                    st.session_state["user"] = username.strip().lower()
-                    st.rerun()
-                else:
-                    st.error("Invalid username or password.")
-        with signup_tab:
-            with st.form("signup_form"):
-                username = st.text_input("Username", key="signup_username")
-                password = st.text_input("Password", type="password", key="signup_password")
-                confirm = st.text_input("Confirm password", type="password")
-                submitted = st.form_submit_button("Create account", type="primary", use_container_width=True)
-            if submitted:
-                if password != confirm:
-                    st.error("Passwords do not match.")
-                else:
-                    ok, message = create_user(username, password)
-                    if ok:
-                        st.session_state["user"] = username.strip().lower()
-                        st.success(message)
-                        st.rerun()
-                    else:
-                        st.error(message)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-
-def compress_event_runs(events, mapper):
-    rows = []
-    if not events:
-        return rows
-
-    start = 1
-    current = events[0]
-    count = 1
-    for position, event_id in enumerate(events[1:], start=2):
-        if event_id == current:
-            count += 1
-            continue
-
-        rows.append(
-            {
-                "Start": start,
-                "End": position - 1,
-                "Event ID": current,
-                "Repeat": count,
-                "Template": mapper.get_template(current),
-            }
-        )
-        start = position
-        current = event_id
-        count = 1
-
-    rows.append(
-        {
-            "Start": start,
-            "End": len(events),
-            "Event ID": current,
-            "Repeat": count,
-            "Template": mapper.get_template(current),
-        }
-    )
-    return rows
-
-
-def event_positions(events, event_id):
-    return [index + 1 for index, value in enumerate(events) if value == event_id]
-
-
-def parse_event_ids(value):
-    if not value:
-        return []
-    return re.findall(r"\bE\d+\b", value.upper())
-
-
-def sample_from_events(events, source, label="Unknown", block_id="custom_sequence"):
-    return {
-        "block_id": block_id,
-        "label": label,
-        "binary_label": -1,
-        "events": events,
-        "latency": None,
-        "sample_count": 1,
-        "source": source,
-    }
-
-
-def parse_uploaded_events(uploaded_file):
-    if uploaded_file is None:
-        return [], "No file uploaded", "Upload a CSV, LOG, or TXT file before running detection."
-
-    suffix = Path(uploaded_file.name).suffix.lower()
-    if suffix not in {".csv", ".log", ".txt"}:
-        return [], "Unsupported file", "Unsupported file type. Please upload only .csv, .log, or .txt files."
-
-    raw = uploaded_file.getvalue()
-    text = raw.decode("utf-8", errors="ignore")
-    if suffix == ".csv":
-        df = pd.read_csv(BytesIO(raw))
-        if "EventId" in df.columns:
-            events = [str(value).strip().upper() for value in df["EventId"].dropna()]
-            if events:
-                return events, "EventId column", ""
-        for column in ("Events", "Features"):
-            if column in df.columns and not df.empty:
-                events = parse_event_sequence(df.iloc[0][column])
-                if events:
-                    return events, column, ""
-        return [], "CSV file", "No event IDs found. CSV must contain EventId, Events, or Features data."
-
-    events = parse_event_ids(text)
-    if not events:
-        return [], "raw text scan", "No event IDs like E1, E2, or E20 were found in the uploaded file."
-    return events, "raw text scan", ""
-
-
-def rule_based_explanation(prediction, severity, trigger, contributors):
-    lines = [
-        f"The selected sequence is classified as {prediction['label']} with "
-        f"{prediction['anomaly_probability']:.2%} anomaly probability.",
-        f"Severity is {severity['level']} with risk score {severity['risk_score']}/100.",
-    ]
-
-    if trigger["event_id"] != "N/A":
-        lines.append(
-            f"The likely trigger is {trigger['event_id']}: {trigger['reason']} "
-            f"It appears {trigger['count']} time(s)."
-        )
-
-    if not contributors.empty:
-        top_rows = contributors.head(5).to_dict("records")
-        summary = ", ".join(
-            f"{row['Event ID']} count {row['Count']} contribution {row['Contribution Score']:.4f}"
-            for row in top_rows
-        )
-        lines.append(f"Top model contributors: {summary}.")
-
-    if prediction["is_anomaly"]:
-        lines.append(
-            "Recommended action: inspect the trigger template, verify block metadata state, "
-            "check NameNode/DataNode consistency, and review replication or delete operations "
-            "around the same block."
-        )
-    else:
-        lines.append("Recommended action: continue monitoring; no high-risk trigger dominates this sample.")
-
-    return "\n\n".join(lines)
-
-
-def ollama_model_available(model_name="llama3"):
-    try:
-        with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=1) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except Exception:
-        return False
-    names = {model.get("name", "").split(":")[0] for model in payload.get("models", [])}
-    return model_name in names
-
-
-def timeline_rows(events, trigger_event_id):
-    high_risk_events = {
-        "E4", "E7", "E8", "E10", "E12", "E14", "E17", "E20", "E24", "E28", "E29"
-    }
-    rows = []
-    for index, event_id in enumerate(events, start=1):
-        if event_id == trigger_event_id:
-            role = "Trigger"
-        elif event_id in high_risk_events:
-            role = "High risk"
-        else:
-            role = "Normal"
-        rows.append({"Position": index, "Event ID": event_id, "Role": role})
-    return pd.DataFrame(rows)
-
-
-def pdf_bytes_from_text(title, body):
-    lines = [title, ""] + body.splitlines()
-    wrapped = []
-    for line in lines:
-        wrapped.extend(textwrap.wrap(line, width=92) or [""])
-
-    content = ["BT", "/F1 10 Tf", "50 790 Td", "14 TL"]
-    for line in wrapped[:52]:
-        escaped = line.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
-        content.append(f"({escaped}) Tj")
-        content.append("T*")
-    content.append("ET")
-    stream = "\n".join(content).encode("latin-1", errors="replace")
-
-    objects = [
-        b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
-        b"/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-        b"<< /Length " + str(len(stream)).encode("ascii") + b" >>\nstream\n" + stream + b"\nendstream",
-    ]
-
-    pdf = bytearray(b"%PDF-1.4\n")
-    offsets = []
-    for number, obj in enumerate(objects, start=1):
-        offsets.append(len(pdf))
-        pdf.extend(f"{number} 0 obj\n".encode("ascii"))
-        pdf.extend(obj)
-        pdf.extend(b"\nendobj\n")
-    xref_offset = len(pdf)
-    pdf.extend(f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode("ascii"))
-    for offset in offsets:
-        pdf.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
-    pdf.extend(
-        f"trailer << /Size {len(objects) + 1} /Root 1 0 R >>\n"
-        f"startxref\n{xref_offset}\n%%EOF\n".encode("ascii")
-    )
-    return bytes(pdf)
 
 
 def render_dashboard_summary():
@@ -365,192 +84,13 @@ def render_incident_history(container):
                 )
 
 
-def event_manual_rows(mapper):
-    rows = []
-    for event_id in sorted(mapper.templates, key=lambda value: int(value[1:])):
-        rows.append(
-            {
-                "Number": int(event_id[1:]),
-                "Event ID": event_id,
-                "Mapped HDFS Event": mapper.get_template(event_id),
-            }
-        )
-    return rows
-
-
-def clear_app_cache():
-    st.cache_data.clear()
-    st.cache_resource.clear()
-
-
-def probability_value(value):
-    if isinstance(value, str):
-        return float(value.strip().replace("%", "")) / 100
-    return float(value)
-
-
 st.set_page_config(
     page_title="AI Incident Intelligence",
     page_icon="AI",
     layout="wide",
 )
 
-st.markdown(
-    """
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-
-    :root {
-        --bg: #f4f7fb;
-        --panel: #ffffff;
-        --panel-soft: #eef3f8;
-        --ink: #17212b;
-        --muted: #647284;
-        --line: #d8e0ea;
-        --accent: #0e7c86;
-        --accent-strong: #095f67;
-        --danger: #b42318;
-        --success: #067647;
-    }
-
-    .stApp {
-        background:
-            linear-gradient(180deg, rgba(14, 124, 134, 0.08), rgba(244, 247, 251, 0) 340px),
-            var(--bg);
-        color: var(--ink);
-        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
-
-    [data-testid="stHeader"] {
-        background: rgba(244, 247, 251, 0.86);
-        backdrop-filter: blur(10px);
-    }
-
-    [data-testid="stSidebar"] {
-        background: #0f1d2b;
-        border-right: 1px solid rgba(255, 255, 255, 0.08);
-    }
-
-    [data-testid="stSidebar"] * {
-        color: #f7fafc;
-    }
-
-    [data-testid="stSidebar"] [data-baseweb="select"] *,
-    [data-testid="stSidebar"] input,
-    [data-testid="stSidebar"] textarea {
-        color: #17212b !important;
-    }
-
-    .block-container {
-        max-width: 1280px;
-        padding-top: 2.2rem;
-        padding-bottom: 3rem;
-    }
-
-    h1 {
-        color: #111827;
-        font-weight: 800;
-        letter-spacing: 0;
-    }
-
-    h2, h3 {
-        color: #17212b;
-        font-weight: 750;
-        letter-spacing: 0;
-    }
-
-    .hero-strip {
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 22px 24px;
-        background: linear-gradient(135deg, #ffffff 0%, #eef8f8 62%, #f7fafc 100%);
-        box-shadow: 0 14px 36px rgba(18, 38, 63, 0.08);
-        margin-bottom: 20px;
-    }
-
-    .hero-strip .eyebrow,
-    .auth-hero .eyebrow {
-        color: var(--accent-strong);
-        font-size: 0.78rem;
-        text-transform: uppercase;
-        letter-spacing: 0.12em;
-        font-weight: 800;
-        margin-bottom: 8px;
-    }
-
-    .hero-strip p,
-    .auth-hero p {
-        color: var(--muted);
-        max-width: 760px;
-        margin-bottom: 0;
-    }
-
-    .section-title {
-        color: #17212b;
-        font-size: 1.18rem;
-        font-weight: 750;
-        margin: 20px 0 10px;
-    }
-
-    [data-testid="stMetric"] {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 14px 16px;
-        box-shadow: 0 10px 28px rgba(18, 38, 63, 0.06);
-    }
-
-    div[data-testid="stTabs"] button {
-        font-weight: 650;
-    }
-
-    .stDataFrame {
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        overflow: hidden;
-        background: var(--panel);
-    }
-
-    .auth-hero {
-        padding: 38px 8px;
-    }
-
-    .auth-hero h1 {
-        font-size: clamp(2.1rem, 4vw, 4.2rem);
-        line-height: 1.02;
-        max-width: 760px;
-        margin-bottom: 18px;
-    }
-
-    .auth-panel {
-        background: rgba(255, 255, 255, 0.92);
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 22px;
-        box-shadow: 0 22px 60px rgba(18, 38, 63, 0.13);
-    }
-
-    .stButton > button,
-    .stDownloadButton > button,
-    button[kind="primary"] {
-        border-radius: 8px;
-        font-weight: 700;
-    }
-
-    .stButton > button[kind="primary"],
-    .stDownloadButton > button[kind="primary"],
-    button[kind="primary"] {
-        background: var(--accent);
-        border-color: var(--accent);
-    }
-
-    .stRadio [role="radiogroup"] {
-        gap: 10px;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+st.markdown(APP_CSS, unsafe_allow_html=True)
 
 if "user" not in st.session_state:
     render_auth_screen()

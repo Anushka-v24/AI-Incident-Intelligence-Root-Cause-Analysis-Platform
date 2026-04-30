@@ -16,15 +16,8 @@ MODEL_OPTIONS = {
     "ensemble": {"label": "Ensemble", "path": None, "fallback": False},
     "transformer": {"label": "Transformer", "path": TRANSFORMER_PATH, "fallback": True},
     "lstm": {"label": "LSTM", "path": ARTIFACT_DIR / "hdfs_lstm.joblib", "fallback": True},
-    "autoencoder": {"label": "Autoencoder", "path": ARTIFACT_DIR / "hdfs_autoencoder.joblib", "fallback": True},
-    "svm": {"label": "SVM", "path": ARTIFACT_DIR / "hdfs_svm.joblib", "fallback": True},
     "lightgbm": {"label": "LightGBM", "path": ARTIFACT_DIR / "hdfs_lightgbm.joblib", "fallback": True},
     "xgboost": {"label": "XGBoost", "path": ARTIFACT_DIR / "hdfs_xgboost.joblib", "fallback": True},
-    "isolation_forest": {
-        "label": "Isolation Forest",
-        "path": ARTIFACT_DIR / "hdfs_isolation_forest.joblib",
-        "fallback": True,
-    },
 }
 
 RF_METRICS = {

@@ -1,0 +1,16 @@
+[project]
+name = "ai-incident-intelligence"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "Flask>=3.0,<4",
+    "joblib>=1.4,<2",
+    "lightgbm>=4.5,<5",
+    "numpy>=1.26,<3",
+    "pandas>=2.2,<3",
+    "scikit-learn>=1.5,<2",
+    "xgboost>=2.1,<4",
+]
+
+[project.scripts]
+app = "api_server:app"
