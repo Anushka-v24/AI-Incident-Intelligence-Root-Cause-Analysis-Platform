@@ -5,7 +5,7 @@ from flask import Response, jsonify, request, send_from_directory, stream_with_c
 
 from inference.detector import MODEL_OPTIONS
 from inference.incident_store import load_incident_history
-from server.analysis import analyze_events
+from server.analysis import analyze_events, compare_dataset_samples
 from server.auth import create_user, require_user, verify_user
 from server.config import HISTORY_PATH, WEB_ROOT
 from server.llm import fallback_explanation, ollama_prompt, stream_ollama_text
@@ -95,6 +95,19 @@ def register_routes(app):
         except ValueError as exc:
             return jsonify({"ok": False, "message": str(exc)}), 400
 
+    @app.post("/api/compare-samples")
+    def compare_samples():
+        payload = request.get_json(force=True)
+        user = require_user(payload)
+        if not user:
+            return jsonify({"ok": False, "message": "Sign in before comparing samples."}), 401
+
+        model_name = payload.get("modelName", "random_forest")
+        if model_name not in MODEL_OPTIONS:
+            return jsonify({"ok": False, "message": "Unknown detector selected."}), 400
+
+        return jsonify(compare_dataset_samples(payload))
+
     @app.post("/api/explain/stream")
     def explain_stream():
         payload = request.get_json(force=True)
@@ -112,4 +125,3 @@ def register_routes(app):
                     yield paragraph + "\n\n"
 
         return Response(stream_with_context(generate()), mimetype="text/plain")
-

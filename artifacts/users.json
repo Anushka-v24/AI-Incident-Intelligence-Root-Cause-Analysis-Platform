@@ -28,5 +28,10 @@
     "salt": "ee9e3618871f211baf375069f2aebbf4",
     "password_hash": "e773fbf6bf5d80a67ca08efe4998b408337938cfdabdbe17546077406107ce3e",
     "created_at": "2026-04-30 02:37:52"
+  },
+  "riya": {
+    "salt": "d65376956c1778c094322056d28c18a0",
+    "password_hash": "a372fa768b5c4765853b208cc848ea4c3defdaa44ba23762dffa365ad2991d6f",
+    "created_at": "2026-05-02 16:45:40"
   }
 }

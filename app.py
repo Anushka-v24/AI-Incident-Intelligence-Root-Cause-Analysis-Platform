@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -284,7 +285,7 @@ if run_detection and events:
             "Model Comparison",
             "Model Metrics",
             "Contributing Events",
-            "LLM Explanation",
+            "Developer Debug Brief",
             "Report",
         ]
     )
@@ -361,8 +362,8 @@ if run_detection and events:
                 st.bar_chart(contributors.set_index("Event ID")["Contribution Score"])
 
     with llm_tab:
-        st.subheader("LLM Root-Cause Explanation")
-        result = "LLM explanation was not generated."
+        st.subheader("Developer Debug Brief")
+        result = "Developer debug brief was not generated."
         top_event_lines = [
             f"{row['Event ID']} contribution {row['Contribution Score']:.4f}: {row['Template']}"
             for row in contributors.to_dict("records")

@@ -130,6 +130,51 @@
         background: rgba(148, 163, 184, 0.32);
         border-radius: 999px;
       }
+
+      .bugbot {
+        width: clamp(5cm, 20vw, 8cm);
+        max-width: 100%;
+        filter: drop-shadow(0 0 28px rgba(166, 195, 111, 0.24));
+      }
+
+      .bugbot-working .bot-head {
+        animation: botThink 0.7s ease-in-out infinite alternate;
+        transform-origin: 90px 74px;
+      }
+
+      .bugbot-working .bot-arm-left {
+        animation: botTypeLeft 0.38s ease-in-out infinite alternate;
+        transform-origin: 53px 142px;
+      }
+
+      .bugbot-working .bot-arm-right {
+        animation: botTypeRight 0.42s ease-in-out infinite alternate;
+        transform-origin: 127px 142px;
+      }
+
+      .bugbot-working .bot-spark {
+        animation: botSpark 0.9s ease-in-out infinite;
+      }
+
+      @keyframes botThink {
+        from { transform: rotate(-2deg) translateY(0); }
+        to { transform: rotate(2deg) translateY(-3px); }
+      }
+
+      @keyframes botTypeLeft {
+        from { transform: rotate(7deg); }
+        to { transform: rotate(-11deg); }
+      }
+
+      @keyframes botTypeRight {
+        from { transform: rotate(-7deg); }
+        to { transform: rotate(11deg); }
+      }
+
+      @keyframes botSpark {
+        0%, 100% { opacity: 0.25; transform: translateY(0); }
+        50% { opacity: 1; transform: translateY(-4px); }
+      }
     </style>
   </head>
   <body class="font-sans text-ink antialiased">
@@ -385,7 +430,7 @@
           ["Enter", "Paste real event data into the manual-events box, or upload a log file."],
           ["Sample", "Use the dataset sample option when you want to test with prepared data."],
           ["Detect", "Pick a model and run detection."],
-          ["Review", "Read the assessment, trigger evidence, and report."],
+          ["Review", "Read the debug brief, trigger evidence, and report."],
         ];
         return (
           <Panel title="How To Use This Console">
@@ -495,6 +540,113 @@
         );
       }
 
+      function SeverityTimeline({ timeline = [] }) {
+        if (!timeline.length) {
+          return <div className="text-sm text-slate-500">No severity timeline available.</div>;
+        }
+
+        let runningRisk = 8;
+        const points = timeline.slice(0, 80).map((row, index) => {
+          const bump = row.role === "Trigger" ? 34 : row.role === "High risk" ? 16 : 2;
+          runningRisk = Math.min(100, runningRisk + bump);
+          return {
+            x: 32 + index * 24,
+            y: 138 - runningRisk,
+            risk: runningRisk,
+            eventId: row.eventId,
+            role: row.role,
+            position: row.position,
+          };
+        });
+        const width = Math.max(720, points.length * 24 + 64);
+        const polyline = points.map((point) => `${point.x},${point.y}`).join(" ");
+
+        return (
+          <div className="thin-scroll max-w-full overflow-x-auto rounded-lg border border-line bg-slate-950/60 p-4">
+            <svg className="block max-w-none" width={width} height="170" viewBox={`0 0 ${width} 170`} role="img" aria-label="Severity timeline">
+              <line x1="28" y1="38" x2={width - 24} y2="38" stroke="rgba(252, 165, 165, 0.14)" />
+              <line x1="28" y1="88" x2={width - 24} y2="88" stroke="rgba(250, 204, 21, 0.12)" />
+              <line x1="28" y1="138" x2={width - 24} y2="138" stroke="rgba(166, 195, 111, 0.14)" />
+              <text x="28" y="28" fill="#fca5a5" fontSize="10" fontWeight="700">High</text>
+              <text x="28" y="78" fill="#facc15" fontSize="10" fontWeight="700">Medium</text>
+              <text x="28" y="128" fill="#a6c36f" fontSize="10" fontWeight="700">Low</text>
+              <polyline points={polyline} fill="none" stroke="#a6c36f" strokeWidth="3" />
+              {points.map((point) => (
+                <g key={`${point.position}-${point.eventId}`}>
+                  <circle cx={point.x} cy={point.y} r={point.role === "Trigger" ? 6 : 4} fill={point.role === "Trigger" ? "#fca5a5" : point.role === "High risk" ? "#facc15" : "#a6c36f"} />
+                  {(point.role !== "Nominal" || point.position % 8 === 0) && (
+                    <text x={point.x} y={point.y - 10} fill="#e2e8f0" fontSize="9" fontWeight="700" textAnchor="middle">{point.eventId}</text>
+                  )}
+                </g>
+              ))}
+            </svg>
+          </div>
+        );
+      }
+
+      function SuggestedFixChecklist({ result }) {
+        if (!result) return null;
+        const triggerId = result.trigger?.event_id || "N/A";
+        const risky = result.prediction?.is_anomaly || result.severity?.level === "HIGH";
+        const items = [
+          `Review ${triggerId} and surrounding event templates before remediation.`,
+          "Verify block metadata and confirm the affected block still belongs to the expected file.",
+          "Check DataNode health, disk availability, and network errors in the same time window.",
+          "Compare replication, delete, and write operations around the trigger positions.",
+          risky ? "Escalate to an operator before destructive cleanup or manual block deletion." : "Continue monitoring and document why no immediate remediation was needed.",
+        ];
+        return (
+          <Panel title="Suggested Fix Checklist">
+            <div className="grid gap-3 md:grid-cols-2">
+              {items.map((item, index) => (
+                <label key={item} className="flex gap-3 rounded-lg border border-line bg-black/20 p-3 text-sm leading-6 text-slate-300">
+                  <input type="checkbox" className="mt-1 h-4 w-4 accent-[#a6c36f]" />
+                  <span><span className="font-bold text-lime-100">Step {index + 1}:</span> {item}</span>
+                </label>
+              ))}
+            </div>
+          </Panel>
+        );
+      }
+
+      function SampleComparison({ compareData }) {
+        if (!compareData) {
+          return <div className="text-sm text-slate-500">Run comparison to inspect two dataset samples side by side.</div>;
+        }
+        const samples = [
+          ["Left sample", compareData.left],
+          ["Right sample", compareData.right],
+        ];
+        return (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {samples.map(([title, sample]) => (
+              <div key={title} className="rounded-lg border border-line bg-slate-950/50 p-4">
+                <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">{title}</div>
+                <div className="mt-2 text-lg font-extrabold text-white">{sample.blockId}</div>
+                <div className="mt-3 grid gap-2 text-sm text-slate-300 sm:grid-cols-2">
+                  <div>Pool: <span className="font-semibold text-white">{sample.pool}</span></div>
+                  <div>Ground truth: <span className="font-semibold text-white">{sample.label}</span></div>
+                  <div>Prediction: <span className="font-semibold text-white">{sample.prediction}</span></div>
+                  <div>Probability: <span className="font-semibold text-white">{(sample.anomalyProbability * 100).toFixed(2)}%</span></div>
+                  <div>Severity: <span className="font-semibold text-white">{sample.severity.level}</span></div>
+                  <div>Trigger: <span className="font-semibold text-white">{sample.trigger.event_id}</span></div>
+                </div>
+                <div className="mt-4">
+                  <div className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Top events</div>
+                  <BarChart
+                    data={(sample.topEvents || []).map((row) => ({
+                      label: row["Event ID"],
+                      value: Number(row["Contribution Score"] || 0).toFixed(3),
+                    }))}
+                    accent={sample.prediction === "Anomaly" ? "red" : "teal"}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      }
+
       function Panel({ title, children, action }) {
         return (
           <section className="glass min-w-0 rounded-xl p-5">
@@ -504,6 +656,77 @@
             </div>
             <div className="min-w-0">{children}</div>
           </section>
+        );
+      }
+
+      function DeveloperBrief({ text, loading }) {
+        const headingPattern = /^(Incident assessment|Problem|Likely Cause|Why This May Be Happening|Recommended Fixes|Recommended Improvements|Ethical Caution|Review Caution|Likely problem|Why it may be happening|How to improve safely)\s*:?$/i;
+        const lines = (text || "Waiting for the model to produce a developer-focused debug brief after detection.").split("\n");
+
+        return (
+          <>
+            {lines.map((line, index) => {
+              const isHeading = headingPattern.test(line.trim());
+              const normalizedLine = line;
+              return (
+                <React.Fragment key={`${index}-${line}`}>
+                  {isHeading ? (
+                    <strong className="text-lime-100">{normalizedLine}</strong>
+                  ) : (
+                    normalizedLine
+                  )}
+                  {index < lines.length - 1 && "\n"}
+                </React.Fragment>
+              );
+            })}
+            {loading && <span className="ml-1 inline-block h-4 w-2 animate-pulse bg-[#a6c36f] align-middle" />}
+          </>
+        );
+      }
+
+      function BugBot({ working, hasResult }) {
+        const moodText = working ? "Debugging..." : hasResult ? "Bug traced" : "Ready";
+        const mouthPath = hasResult && !working ? "M70 88 Q90 105 110 88" : "M72 92 Q90 86 108 92";
+        const eyeShape = working ? (
+          <>
+            <path d="M67 72 L77 82 M77 72 L67 82" stroke="#07110c" strokeWidth="5" strokeLinecap="round" />
+            <path d="M103 72 L113 82 M113 72 L103 82" stroke="#07110c" strokeWidth="5" strokeLinecap="round" />
+          </>
+        ) : (
+          <>
+            <circle cx="72" cy="77" r="6" fill="#07110c" />
+            <circle cx="108" cy="77" r="6" fill="#07110c" />
+          </>
+        );
+
+        return (
+          <div className="glass flex flex-col items-center rounded-xl p-4 text-center">
+            <svg className={`bugbot ${working ? "bugbot-working" : ""}`} viewBox="0 0 180 220" role="img" aria-label={`Robot assistant ${moodText.toLowerCase()}`}>
+              <line x1="90" y1="33" x2="90" y2="48" stroke="#a6c36f" strokeWidth="6" strokeLinecap="round" />
+              <circle className="bot-spark" cx="90" cy="26" r="8" fill="#d4e89a" />
+              <g className="bot-head">
+                <rect x="42" y="48" width="96" height="72" rx="22" fill="#a6c36f" />
+                <rect x="54" y="62" width="72" height="44" rx="15" fill="#e7f5bd" />
+                {eyeShape}
+                <path d={mouthPath} fill="none" stroke="#07110c" strokeWidth="5" strokeLinecap="round" />
+              </g>
+              <rect x="58" y="125" width="64" height="54" rx="16" fill="#182315" stroke="#a6c36f" strokeWidth="5" />
+              <rect x="74" y="139" width="32" height="16" rx="8" fill="#d4e89a" opacity="0.9" />
+              <g className="bot-arm-left">
+                <path d="M58 140 C38 142 31 154 29 172" fill="none" stroke="#a6c36f" strokeWidth="9" strokeLinecap="round" />
+                <circle cx="28" cy="176" r="8" fill="#e7f5bd" />
+              </g>
+              <g className="bot-arm-right">
+                <path d="M122 140 C142 142 149 154 151 172" fill="none" stroke="#a6c36f" strokeWidth="9" strokeLinecap="round" />
+                <circle cx="152" cy="176" r="8" fill="#e7f5bd" />
+              </g>
+              <rect x="48" y="184" width="84" height="18" rx="7" fill="#07110c" stroke="#a6c36f" strokeWidth="4" />
+              <path d="M64 193 H116" stroke="#d4e89a" strokeWidth="3" strokeLinecap="round" strokeDasharray="8 7" />
+              <circle className="bot-spark" cx="143" cy="42" r="4" fill="#d4e89a" style={{ animationDelay: "0.25s" }} />
+              <circle className="bot-spark" cx="37" cy="62" r="3" fill="#d4e89a" style={{ animationDelay: "0.5s" }} />
+            </svg>
+            <div className="mt-2 text-xs font-extrabold uppercase tracking-[0.18em] text-lime-100">{moodText}</div>
+          </div>
         );
       }
 
@@ -580,6 +803,8 @@
         const [page, setPage] = useState("dashboard");
         const [history, setHistory] = useState({ summary: {}, rows: [] });
         const [manualRows, setManualRows] = useState([]);
+        const [manualSearch, setManualSearch] = useState("");
+        const [selectedManualEvent, setSelectedManualEvent] = useState(null);
         const [result, setResult] = useState(null);
         const [source, setSource] = useState("Dataset sample");
         const [samplePool, setSamplePool] = useState("Mixed");
@@ -587,13 +812,21 @@
         const [manualText, setManualText] = useState("E5, E22, E11, E9, E3, E20");
         const [uploadedFileName, setUploadedFileName] = useState("");
         const [modelName, setModelName] = useState("random_forest");
+        const [compareLeftPool, setCompareLeftPool] = useState("Normal");
+        const [compareLeftIndex, setCompareLeftIndex] = useState(0);
+        const [compareRightPool, setCompareRightPool] = useState("Anomaly");
+        const [compareRightIndex, setCompareRightIndex] = useState(0);
+        const [compareData, setCompareData] = useState(null);
+        const [compareLoading, setCompareLoading] = useState(false);
         const [message, setMessage] = useState("");
         const [loading, setLoading] = useState(false);
 	        const [liveExplanation, setLiveExplanation] = useState("");
 	        const [explanationLoading, setExplanationLoading] = useState(false);
-	        const [evidenceView, setEvidenceView] = useState("");
+        const [evidenceView, setEvidenceView] = useState("");
         const [profileOpen, setProfileOpen] = useState(false);
         const explanationRef = useRef(null);
+        const explanationPanelRef = useRef(null);
+        const followExplanationRef = useRef(true);
         const typeText = (text, delay = 14) =>
           new Promise((resolve) => {
             let index = 0;
@@ -622,9 +855,16 @@
 
         useEffect(() => {
           if (!explanationLoading || !explanationRef.current) return;
-          explanationRef.current.scrollTop = explanationRef.current.scrollHeight;
-          explanationRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+          if (followExplanationRef.current) {
+            explanationRef.current.scrollTop = explanationRef.current.scrollHeight;
+          }
         }, [liveExplanation, explanationLoading]);
+
+        useEffect(() => {
+          if (!explanationLoading) return;
+          followExplanationRef.current = true;
+          explanationPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, [explanationLoading]);
 
         const streamExplanation = async (analysis) => {
           setLiveExplanation("");
@@ -760,7 +1000,35 @@
           setProfileOpen(false);
         };
 
+        const compareSamples = async () => {
+          setCompareLoading(true);
+          setMessage("");
+          try {
+            const data = await api("/api/compare-samples", {
+              method: "POST",
+              body: JSON.stringify({
+                user,
+                modelName,
+                leftPool: compareLeftPool,
+                leftIndex: compareLeftIndex,
+                rightPool: compareRightPool,
+                rightIndex: compareRightIndex,
+              }),
+            });
+            setCompareData(data);
+          } catch (err) {
+            setMessage(err.message);
+          } finally {
+            setCompareLoading(false);
+          }
+        };
+
         const summary = history.summary || {};
+        const filteredManualRows = manualRows.filter((row) => {
+          const query = manualSearch.trim().toLowerCase();
+          if (!query) return true;
+          return `${row.eventId} ${row.template} ${row.number}`.toLowerCase().includes(query);
+        });
         const contributionData = (result?.contributors || []).map((row) => ({
           label: row["Event ID"],
           value: Number(row["Contribution Score"] || 0).toFixed(3),
@@ -795,6 +1063,7 @@
                     {[
                       ["dashboard", "Detection"],
                       ["manual", "Mapping Manual"],
+                      ["compare", "Compare"],
                       ["history", "History"],
                     ].map(([key, label]) => (
                       <button
@@ -819,16 +1088,91 @@
                   <p className="mb-4 max-w-3xl text-sm leading-6 text-slate-400">
                     Use this reference to interpret event identifiers before submitting manual sequences. Event labels describe known HDFS log templates and should be treated as evidence for review, not as automatic proof of fault.
                   </p>
-                  <Table
-                    columns={[
-                      { key: "number", label: "Number" },
-                      { key: "eventId", label: "Event ID" },
-                      { key: "template", label: "Mapped HDFS event" },
-                    ]}
-                    rows={manualRows}
-                    maxHeight="max-h-[70vh]"
-                  />
+                  <div className="mb-4 grid gap-4 lg:grid-cols-[1fr_22rem]">
+                    <Field
+                      label="Search manual"
+                      value={manualSearch}
+                      onChange={(event) => setManualSearch(event.target.value)}
+                      placeholder="Search E20, delete, replication, exception..."
+                    />
+                    <div className="rounded-lg border border-line bg-black/20 p-3 text-sm leading-6 text-slate-400">
+                      {selectedManualEvent ? (
+                        <>
+                          <div className="font-extrabold text-lime-100">{selectedManualEvent.eventId}</div>
+                          <div>{selectedManualEvent.template}</div>
+                          <div className="mt-2 text-xs text-slate-500">
+                            Use this event as evidence. Repeated appearances, nearby high-risk events, and model contribution decide whether it is operationally important.
+                          </div>
+                        </>
+                      ) : (
+                        "Click Explain beside an event to see why it may matter."
+                      )}
+                    </div>
+                  </div>
+                  <div className="thin-scroll max-h-[70vh] overflow-auto rounded-lg border border-line">
+                    <table className="w-full min-w-[760px] text-left text-sm">
+                      <thead className="sticky top-0 bg-slate-950 text-xs uppercase tracking-wide text-slate-400">
+                        <tr>
+                          <th className="px-4 py-3 font-bold">Number</th>
+                          <th className="px-4 py-3 font-bold">Event ID</th>
+                          <th className="px-4 py-3 font-bold">Mapped event</th>
+                          <th className="px-4 py-3 font-bold">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-line">
+                        {filteredManualRows.length === 0 && (
+                          <tr><td className="px-4 py-6 text-slate-500" colSpan="4">No matching events found.</td></tr>
+                        )}
+                        {filteredManualRows.map((row) => (
+                          <tr key={row.eventId} className="bg-white/[0.02] transition hover:bg-white/[0.05]">
+                            <td className="px-4 py-3 text-slate-300">{row.number}</td>
+                            <td className="px-4 py-3 font-bold text-lime-100">{row.eventId}</td>
+                            <td className="px-4 py-3 text-slate-300">{row.template}</td>
+                            <td className="px-4 py-3">
+                              <Button variant="ghost" onClick={() => setSelectedManualEvent(row)}>Explain</Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </Panel>
+              )}
+
+              {page === "compare" && (
+                <div className="space-y-6">
+                  <Panel title="Sample Comparison">
+                    <p className="mb-5 max-w-3xl text-sm leading-6 text-slate-400">
+                      Compare two prepared dataset samples side by side without adding either run to your incident history.
+                    </p>
+                    <div className="grid gap-4 lg:grid-cols-[1fr_1fr_14rem]">
+                      <div className="grid gap-3 rounded-lg border border-line bg-black/20 p-4 sm:grid-cols-2">
+                        <Select label="Left pool" value={compareLeftPool} onChange={(e) => setCompareLeftPool(e.target.value)}>
+                          <option>Normal</option>
+                          <option>Anomaly</option>
+                          <option>Mixed</option>
+                        </Select>
+                        <Field label="Left index" type="number" min="0" value={compareLeftIndex} onChange={(e) => setCompareLeftIndex(e.target.value)} />
+                      </div>
+                      <div className="grid gap-3 rounded-lg border border-line bg-black/20 p-4 sm:grid-cols-2">
+                        <Select label="Right pool" value={compareRightPool} onChange={(e) => setCompareRightPool(e.target.value)}>
+                          <option>Anomaly</option>
+                          <option>Normal</option>
+                          <option>Mixed</option>
+                        </Select>
+                        <Field label="Right index" type="number" min="0" value={compareRightIndex} onChange={(e) => setCompareRightIndex(e.target.value)} />
+                      </div>
+                      <div className="flex items-end">
+                        <Button className="w-full py-3" onClick={compareSamples} disabled={compareLoading}>
+                          {compareLoading ? "Comparing..." : "Compare"}
+                        </Button>
+                      </div>
+                    </div>
+                  </Panel>
+                  <Panel title="Comparison Result">
+                    <SampleComparison compareData={compareData} />
+                  </Panel>
+                </div>
               )}
 
               {page === "history" && (
@@ -951,6 +1295,9 @@
                       <Button className="w-full py-3" onClick={analyze} disabled={loading}>
                         {loading ? "Analyzing evidence..." : "Run detection"}
                       </Button>
+                      {(loading || explanationLoading || result) && (
+                        <BugBot working={loading || explanationLoading} hasResult={Boolean(result)} />
+                      )}
                     </div>
                   </aside>
 
@@ -986,26 +1333,31 @@
 		                          <StatCard compact label="Severity" value={result.severity.level} detail={`Risk ${result.severity.risk_score}/100`} />
 		                        </div>
 
-	                        <div className="grid gap-6 lg:grid-cols-2">
-	                          <Panel title="Input Evidence">
-	                            <div className="grid gap-3 text-sm text-slate-300 sm:grid-cols-2">
-	                              <div>Source: <span className="font-semibold text-white">{result.sample.source}</span></div>
-		                              <div className="min-w-0">Block ID: <span className="break-all font-semibold text-white">{result.sample.blockId}</span></div>
-	                              <div>Dataset label: <span className="font-semibold text-white">{result.sample.label}</span></div>
-	                              <div>Sequence length: <span className="font-semibold text-white">{result.sample.sequenceLength}</span></div>
-	                            </div>
-	                            <div className="mt-4 rounded-lg border border-line bg-slate-950/50 p-3 text-xs leading-6 text-slate-400">
-	                              {result.sample.preview.join(", ")}
-	                            </div>
-	                          </Panel>
-	                          <Panel title="Trigger Assessment">
-	                            <p className="text-sm leading-6 text-slate-300">{result.trigger.reason}</p>
-	                            <div className="mt-4 rounded-lg border border-line bg-slate-950/50 p-3 text-sm text-slate-400">{result.trigger.template}</div>
-	                          </Panel>
-	                        </div>
+                          <Panel title="Block Details">
+                            <div className="grid gap-6 lg:grid-cols-2">
+                              <div>
+                                <h3 className="text-base font-extrabold text-white">Input Evidence</h3>
+                                <div className="mt-3 grid gap-3 text-sm text-slate-300 sm:grid-cols-2">
+                                  <div>Source: <span className="font-semibold text-white">{result.sample.source}</span></div>
+                                  <div className="min-w-0">Block ID: <span className="break-all font-semibold text-white">{result.sample.blockId}</span></div>
+                                  <div>Dataset label: <span className="font-semibold text-white">{result.sample.label}</span></div>
+                                  <div>Sequence length: <span className="font-semibold text-white">{result.sample.sequenceLength}</span></div>
+                                </div>
+                                <div className="mt-4 rounded-lg border border-line bg-slate-950/50 p-3 text-xs leading-6 text-slate-400">
+                                  {result.sample.preview.join(", ")}
+                                </div>
+                              </div>
+                              <div>
+                                <h3 className="text-base font-extrabold text-white">Trigger Details</h3>
+                                <p className="mt-3 text-sm leading-6 text-slate-300">{result.trigger.reason}</p>
+                                <div className="mt-4 rounded-lg border border-line bg-slate-950/50 p-3 text-sm text-slate-400">{result.trigger.template}</div>
+                              </div>
+                            </div>
+                          </Panel>
 
+	                        <div ref={explanationPanelRef}>
 	                        <Panel
-	                          title={source === "Dataset sample" ? "Live Ollama Assessment" : "Live Investigation Assessment"}
+	                          title="Developer Debug Brief"
                           action={
                             explanationLoading && (
                               <span className="rounded-full border border-lime-200/25 bg-[#a6c36f]/10 px-3 py-1 text-xs font-bold text-lime-100">
@@ -1015,24 +1367,41 @@
                           }
                         >
                           <div className="relative overflow-hidden rounded-lg border border-line bg-slate-950/60 p-4">
-                            {explanationLoading && (
-                              <div className="absolute inset-x-0 top-0 h-px overflow-hidden bg-[#a6c36f]/20">
-                                <div className="h-full w-1/2 animate-scan bg-[#a6c36f]/70" />
+                              {explanationLoading && (
+                                <div className="absolute inset-x-0 top-0 h-px overflow-hidden bg-[#a6c36f]/20">
+                                  <div className="h-full w-1/2 animate-scan bg-[#a6c36f]/70" />
+                                </div>
+                              )}
+                              <div
+                                ref={explanationRef}
+                                onScroll={(event) => {
+                                  const element = event.currentTarget;
+                                  const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+                                  followExplanationRef.current = distanceFromBottom < 48;
+                                }}
+                                className="thin-scroll min-h-44 max-h-96 overflow-auto whitespace-pre-wrap text-sm leading-7 text-slate-300"
+                              >
+                                <DeveloperBrief text={liveExplanation} loading={explanationLoading} />
                               </div>
-                            )}
-	                            <pre ref={explanationRef} className="thin-scroll min-h-44 max-h-96 overflow-auto whitespace-pre-wrap text-sm leading-7 text-slate-300">
-                              {liveExplanation || "Waiting for the model to produce an operator-facing explanation after detection."}
-                              {explanationLoading && <span className="ml-1 inline-block h-4 w-2 animate-pulse bg-[#a6c36f] align-middle" />}
-                            </pre>
                           </div>
                           <p className="mt-3 text-xs leading-5 text-slate-500">
-                            This narrative is decision support. Validate evidence, impact, and remediation steps with an accountable operator.
+                            This debug brief is decision support. Validate evidence, impact, and remediation steps before changing a live system.
                           </p>
                         </Panel>
+	                        </div>
+
+                            <Panel title="Incident Graph">
+                              <div className="space-y-5">
+                                <SeverityTimeline timeline={result.timeline || []} />
+                                <EventSequenceGraph timeline={result.timeline || []} />
+                              </div>
+                            </Panel>
+
+                          <SuggestedFixChecklist result={result} />
 
 	                        <div className="grid gap-6 lg:grid-cols-2">
-	                          <Panel title="Event Frequency"><BarChart data={eventCounts} /></Panel>
-	                          <Panel title="Contributing Events"><BarChart data={contributionData} accent="red" /></Panel>
+	                          <Panel title="Event Frequency Table"><BarChart data={eventCounts} /></Panel>
+	                          <Panel title="Contributing Events Table"><BarChart data={contributionData} accent="red" /></Panel>
 	                        </div>
 
 	                        <Panel title="Evidence Table Tools">
@@ -1041,7 +1410,6 @@
 		                            <EvidenceButton active={evidenceView === "probability"} label="Model probability chart" shortLabel="Probability" onClick={() => setEvidenceView(evidenceView === "probability" ? "" : "probability")} />
 		                            <EvidenceButton active={evidenceView === "contributors"} label="Contributing events table" shortLabel="Events" onClick={() => setEvidenceView(evidenceView === "contributors" ? "" : "contributors")} />
 		                            <EvidenceButton active={evidenceView === "report"} label="Report preview" shortLabel="Report" onClick={() => setEvidenceView(evidenceView === "report" ? "" : "report")} />
-		                            <EvidenceButton active={evidenceView === "graph"} label="Event sequence graph" shortLabel="Graph" onClick={() => setEvidenceView(evidenceView === "graph" ? "" : "graph")} />
 	                          </div>
 
 	                          {evidenceView === "comparison" && (
@@ -1078,12 +1446,6 @@
 		                            </div>
 		                          )}
 
-		                          {evidenceView === "graph" && (
-		                            <div className="mt-5 min-w-0 max-w-full">
-		                              <EventSequenceGraph timeline={result.timeline || []} />
-		                            </div>
-		                          )}
-
 		                          {evidenceView === "report" && (
                                 <div className="mt-5">
                                   <div className="mb-4 flex flex-wrap gap-3">
@@ -1098,6 +1460,7 @@
 	                        </Panel>
                       </>
                     )}
+
                   </section>
                 </div>
               )}

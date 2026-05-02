@@ -105,3 +105,43 @@ def analyze_events(payload, user):
         "report": report_text,
     }
 
+
+def summarize_dataset_sample(sample_pool, sample_index, model_name):
+    sample = get_hdfs_sample(sample_pool, int(sample_index or 0))
+    events = sample["events"]
+    mapper = EventMapper(str(TEMPLATES_PATH))
+    detector = HDFSAnomalyDetector(model_name=model_name)
+    prediction = detector.predict(events)
+    trigger = detector.likely_trigger(events, mapper=mapper)
+    severity = detector.severity(prediction["anomaly_probability"], trigger=trigger)
+    contributors = detector.top_contributing_events(events, mapper=mapper, limit=5)
+    event_counts = mapper.summarize_events(events)
+
+    return {
+        "pool": sample_pool,
+        "index": int(sample_index or 0),
+        "blockId": sample["block_id"],
+        "label": sample["label"],
+        "sequenceLength": len(events),
+        "prediction": prediction["label"],
+        "anomalyProbability": prediction["anomaly_probability"],
+        "severity": severity,
+        "trigger": trigger,
+        "topEvents": serializable_rows(contributors),
+        "eventCounts": event_counts,
+    }
+
+
+def compare_dataset_samples(payload):
+    model_name = payload.get("modelName", "random_forest")
+    left = summarize_dataset_sample(
+        payload.get("leftPool", "Normal"),
+        payload.get("leftIndex", 0),
+        model_name,
+    )
+    right = summarize_dataset_sample(
+        payload.get("rightPool", "Anomaly"),
+        payload.get("rightIndex", 0),
+        model_name,
+    )
+    return {"ok": True, "left": left, "right": right}
