@@ -1,0 +1,30 @@
+2026-05-02 13:41:02 INFO block=blk_demo_16089 EventId=E5 Received block report from datanode
+2026-05-02 13:41:03 INFO block=blk_demo_16089 EventId=E22 Verification succeeded for block
+2026-05-02 13:41:04 INFO block=blk_demo_16089 EventId=E11 Receiving block metadata update
+2026-05-02 13:41:05 INFO block=blk_demo_16089 EventId=E9 Packet responder started
+2026-05-02 13:41:06 WARN block=blk_demo_16089 EventId=E20 Unexpected delete error: block metadata missing from volumeMap
+2026-05-02 13:41:07 WARN block=blk_demo_16089 EventId=E20 Unexpected delete error repeated for same block
+2026-05-02 13:41:08 WARN block=blk_demo_16089 EventId=E24 Block removed from needed replication unexpectedly
+2026-05-02 13:41:09 ERROR block=blk_demo_16089 EventId=E12 Exception while writing block to mirror
+2026-05-02 13:41:10 ERROR block=blk_demo_16089 EventId=E14 Exception in receiveBlock
+2026-05-02 13:41:11 ERROR block=blk_demo_16089 EventId=E17 Block transfer failed
+2026-05-02 13:41:12 WARN block=blk_demo_16089 EventId=E28 Stored block does not belong to any file
+2026-05-02 13:41:13 WARN block=blk_demo_16089 EventId=E29 Pending replication timed out
+2026-05-02 13:41:14 ERROR block=blk_demo_16089 EventId=E10 PacketResponder exception
+2026-05-02 13:41:15 ERROR block=blk_demo_16089 EventId=E8 PacketResponder was interrupted
+2026-05-02 13:41:16 ERROR block=blk_demo_16089 EventId=E7 writeBlock received an exception
+2026-05-02 13:41:17 ERROR block=blk_demo_16089 EventId=E4 Exception while serving a block
+2026-05-02 13:41:18 WARN block=blk_demo_16089 EventId=E20 volumeMap lookup failed again
+2026-05-02 13:41:19 WARN block=blk_demo_16089 EventId=E24 replication queue lost block reference
+2026-05-02 13:41:20 ERROR block=blk_demo_16089 EventId=E12 mirror write failed again
+2026-05-02 13:41:21 ERROR block=blk_demo_16089 EventId=E14 receiveBlock exception repeated
+2026-05-02 13:41:22 ERROR block=blk_demo_16089 EventId=E17 transfer failure repeated
+2026-05-02 13:41:23 WARN block=blk_demo_16089 EventId=E28 orphan stored block observed
+2026-05-02 13:41:24 WARN block=blk_demo_16089 EventId=E29 replication timeout repeated
+2026-05-02 13:41:25 ERROR block=blk_demo_16089 EventId=E10 PacketResponder exception repeated
+2026-05-02 13:41:26 ERROR block=blk_demo_16089 EventId=E8 responder interrupted during write
+2026-05-02 13:41:27 ERROR block=blk_demo_16089 EventId=E7 writeBlock exception repeated
+2026-05-02 13:41:28 ERROR block=blk_demo_16089 EventId=E4 serving block exception repeated
+2026-05-02 13:41:29 WARN block=blk_demo_16089 EventId=E20 blockMap update failed
+2026-05-02 13:41:30 INFO block=blk_demo_16089 EventId=E5 follow-up block report received
+2026-05-02 13:41:31 INFO block=blk_demo_16089 EventId=E6 datanode state update received

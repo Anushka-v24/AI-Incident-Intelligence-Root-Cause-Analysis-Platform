@@ -660,17 +660,23 @@
       }
 
       function DeveloperBrief({ text, loading }) {
-        const headingPattern = /^(Incident assessment|Problem|Likely Cause|Why This May Be Happening|Recommended Fixes|Recommended Improvements|Ethical Caution|Review Caution|Likely problem|Why it may be happening|How to improve safely)\s*:?$/i;
+        const headingPattern = /^(?:#{1,6}\s*)?(?:\*\*)?(?:\d+[\).\s-]*)?(Incident assessment|Explanation|Developer Debug Brief|Problem|Likely Cause|Why This May Be Happening|Recommended Fixes|Recommended Improvements|Ethical Caution|Review Caution|Likely problem|Why it may be happening|How to improve safely)(?:\*\*)?\s*:?\s*(.*)$/i;
         const lines = (text || "Waiting for the model to produce a developer-focused debug brief after detection.").split("\n");
+        let firstHeadingHighlighted = false;
 
         return (
           <>
             {lines.map((line, index) => {
-              const isHeading = headingPattern.test(line.trim());
+              const match = line.trim().match(headingPattern);
+              const isHeading = Boolean(match);
+              const emphasizeFirstHeading = isHeading && !firstHeadingHighlighted;
+              if (isHeading) firstHeadingHighlighted = true;
               const normalizedLine = line;
               return (
                 <React.Fragment key={`${index}-${line}`}>
-                  {isHeading ? (
+                  {emphasizeFirstHeading ? (
+                    <strong className="rounded-md bg-[#a6c36f]/18 px-1.5 py-0.5 text-lime-100 shadow-[0_0_22px_rgba(166,195,111,0.18)]">{normalizedLine}</strong>
+                  ) : isHeading ? (
                     <strong className="text-lime-100">{normalizedLine}</strong>
                   ) : (
                     normalizedLine

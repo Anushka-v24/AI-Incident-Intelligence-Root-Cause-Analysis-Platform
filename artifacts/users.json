@@ -33,5 +33,10 @@
     "salt": "d65376956c1778c094322056d28c18a0",
     "password_hash": "a372fa768b5c4765853b208cc848ea4c3defdaa44ba23762dffa365ad2991d6f",
     "created_at": "2026-05-02 16:45:40"
+  },
+  "ankit": {
+    "salt": "c8eb69580459c81e19f642fc03ab0629",
+    "password_hash": "81e6ea9df94bf7334e286e161190b69419b55b34e8fc0efa97c81f9dd479164d",
+    "created_at": "2026-05-02 22:21:21"
   }
 }
